@@ -1,4 +1,4 @@
-appname := transform
+appname := compute 
 
 CXX := c++
 CXXFLAGS := -std=c++11 -ggdb 

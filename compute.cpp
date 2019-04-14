@@ -10,16 +10,15 @@ using namespace std;
 using namespace cv;
 
 
-vector<float> refX,refY,x,y,hom; 
-Mat T(2,3,CV_32FC1);
-float cxxx = 0;
-float cxxy = 0;
-float rxxx = 0;
-float rxxy = 0;
 
 
-vector<float> transform(vector<float> xi, vector<float> yi,vector<float> x,vector<float> y)
+void transformRot(vector<float> xi, vector<float> yi,vector<float> x,vector<float> y,vector<float> *xt,vector<float> *yt)
 {
+	Mat T(2,3,CV_32FC1);
+	float cxxx = 0;
+	float cxxy = 0;
+	float rxxx = 0;
+	float rxxy = 0;
 	printf("%i\n",xi.size());
 	Mat A(xi.size(),4,CV_32FC1);
 	Mat b(xi.size(),1,CV_32FC1);
@@ -58,7 +57,7 @@ vector<float> transform(vector<float> xi, vector<float> yi,vector<float> x,vecto
 	cv::SVD svdMat(A);
 	cout << svdMat.w << endl; 	//eigenvalues indicate solution quality
 	cv::SVD::solveZ(A,b);
-	
+
 	//normalize vector so that it points in a correct direction
 	if (b.at<float>(0,0) < 0) b=-b;
 	float a0 = b.at<float>(0,0);
@@ -88,43 +87,81 @@ vector<float> transform(vector<float> xi, vector<float> yi,vector<float> x,vecto
 		rx.at<float>(0,i)=xi[i]+rxxx;
 		rx.at<float>(1,i)=yi[i]+rxxy;
 	}
- 	Mat e = T*xx-rx;
+	Mat ttx = T*xx;
+	Mat e = ttx-rx;
 
 	//calculate error
 	float err = 0;
-	for (int i = 0;i<xi.size();i++) err += sqrt(e.at<float>(0,i)*e.at<float>(0,i)+e.at<float>(1,i)*e.at<float>(1,i));
-	printf("%f\n",err/xi.size());
-	return hom;
+	for (int i = 0;i<xi.size();i++){
+		xt->push_back(ttx.at<float>(0,i));
+		yt->push_back(ttx.at<float>(1,i));
+	       	err += sqrt(e.at<float>(0,i)*e.at<float>(0,i)+e.at<float>(1,i)*e.at<float>(1,i));
+	}
+	printf("Error: %f\n",err/xi.size());
 }
 
-int maina(int argc,char* argv[])
+float dist(float x,float y, float rx,float ry)
 {
+	float dx = x-rx;
+	float dy = y-ry;
+	return sqrt(dx*dx+dy*dy);
+}
+
+int main(int argc,char* argv[])
+{
+	/*read input*/
+	vector<float> camX,camY,radX,radY,radC,lasX,lasY,lasC,radTX,radTY,lasTX,lasTY; 
 	if(argc<3)
 	{
 		fprintf(stderr,"usage: %s referencePoints.txt points.txt \n",argv[0]); 
 		return 0;
 	}
 
-	ifstream inReferenceFile(argv[1]);
-	ifstream inFile(argv[2]);
-	ifstream outFile(argv[3]);
-	float a,b;
+	ifstream inFile(argv[1]);
+	ifstream outFile(argv[2]);
+	float cx,cy,rx,ry,rc,lx,ly,lc;
+	string ret;
 
-	while(inReferenceFile >> a >> b)
+	while(inFile >> ret >> cx >> cy >> rx >>ry >> rc >> lx >> ly >> lc)
 	{
-		refX.push_back(a);
-		refY.push_back(b);
+		camX.push_back(cx);
+		camY.push_back(cy);
+		radTX.push_back(rx);
+		radTY.push_back(ry);
+		radC.push_back(rc);
+		lasTX.push_back(lx);
+		lasTY.push_back(ly);
+		lasC.push_back(lc);
+	}
+	/*perform transformations*/
+	transformRot(camX,camY,radTX,radTY,&radX,&radY);
+	transformRot(camX,camY,lasTX,lasTY,&lasX,&lasY);
+	float wr,wl,kfX,kfY,radD,lasD,kfD,sfD,sfX,sfY;
+	radD=lasD=sfD=kfD=0;	
+	for (int i = 0;i<camX.size();i++){
+		wr = radC[i];
+		wl = lasC[i];
+		kfX = (radX[i]*wr+lasX[i]*wl)/(wr+wl);
+		kfY = (radY[i]*wr+lasY[i]*wl)/(wr+wl);
+		if (wr > wl) {
+			sfX = radX[i];
+			sfY = radY[i];
+		}else{
+			sfX = lasX[i];
+			sfY = lasY[i];
+		}
+		lasD += dist(lasX[i],lasY[i],camX[i],camY[i]);
+		radD += dist(radX[i],radY[i],camX[i],camY[i]);
+		kfD += dist(kfX,kfY,camX[i],camY[i]);
+		sfD += dist(sfX,sfY,camX[i],camY[i]);
+		printf("Las/Rad/KF/SF %f %f %f %f\n",dist(lasX[i],lasY[i],camX[i],camY[i]),dist(radX[i],radY[i],camX[i],camY[i]),dist(kfX,kfY,camX[i],camY[i]),dist(sfX,sfY,camX[i],camY[i]));
+	}
+	lasD = lasD/camX.size();
+	radD = radD/camX.size();
+	sfD = sfD/camX.size();
+	kfD = kfD/camX.size();
+	printf("Sum Las/Rad/KF/SF %f %f %f %f\n",lasD,radD,kfD,sfD);
 
-	}
-	while(inFile >> a >> b)
-	{
-		x.push_back(a);
-		y.push_back(b);
-	}
-	hom = transform(refX,refY,x,y);
-	cout << "Mat ";
-	for( int i=0;i<hom.size();i++)cout<< hom[i] << " ";
-	cout << endl;
 	return 0;
 }
 
